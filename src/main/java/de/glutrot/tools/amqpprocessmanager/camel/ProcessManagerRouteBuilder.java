@@ -77,7 +77,7 @@ public class ProcessManagerRouteBuilder extends RouteBuilder {
             }
             
             // configure processor to run external task
-            ExternalTaskProcessor taskProcessor = new ExternalTaskProcessor(procConfig.name);
+            ExternalTaskProcessor taskProcessor = new ExternalTaskProcessor(procConfig);
             
             // wire it up
             from(amqpIn).process(taskProcessor).process(replyProcessor).to(amqpOut);
