@@ -9,10 +9,15 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import org.apache.camel.CamelContext;
+import org.apache.camel.ServiceStatus;
 import org.apache.camel.impl.DefaultCamelContext;
 
 public class Main {
+    private static final Logger logger = Logger.getLogger(Main.class.getName());
+    
     private static final String defaultConfigFileName = ".amqpprocessmanager.json";
     private static final String defaultConfigFileCharset = "UTF-8";
     
@@ -28,13 +33,19 @@ public class Main {
             System.exit(1);
         }
         
-        System.out.println("Starting Camel...");
+        logger.log(Level.INFO, "Starting Camel...");
         camelContext.start();
-        System.out.println("Camel started...");
-        
-        while (true) {
+        while (camelContext.getStatus().isStarting()) {
             Thread.yield();
-        }
+        };
+        
+        logger.log(Level.INFO, "Camel started...");
+        ServiceStatus status = camelContext.getStatus();
+        do {
+            Thread.sleep(2000);
+        } while (status.isStarted() || status.isSuspended() || status.isSuspending());
+        
+        logger.log(Level.INFO, "Camel stopped, shutting down...");
     }
     
     /**

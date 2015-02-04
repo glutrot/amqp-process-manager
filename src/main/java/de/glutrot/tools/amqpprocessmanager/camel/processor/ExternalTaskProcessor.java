@@ -1,5 +1,6 @@
 package de.glutrot.tools.amqpprocessmanager.camel.processor;
 
+import de.glutrot.tools.amqpprocessmanager.ProcessWatchdog;
 import de.glutrot.tools.amqpprocessmanager.beans.config.ProcessConfiguration;
 import java.io.BufferedReader;
 import java.io.File;
@@ -25,8 +26,14 @@ public class ExternalTaskProcessor implements Processor {
         
     private String name = null;
     
+    private int watchdogTimeout = 0;
+    private int watchdogCheckInterval = 0;
+    
     public ExternalTaskProcessor(ProcessConfiguration config) {
         name = config.name;
+        
+        watchdogTimeout = config.execution.watchdogTimeout;
+        watchdogCheckInterval = config.execution.watchdogCheckInterval;
         
         String executable = config.execution.executable;
         List<String> args = config.execution.args;
@@ -163,6 +170,9 @@ public class ExternalTaskProcessor implements Processor {
             
             try {
                 Process p = pb.start();
+                ProcessWatchdog wd = new ProcessWatchdog(p, watchdogTimeout, watchdogCheckInterval, name);
+                wd.start();
+                
                 while (p.isAlive()) {
                     logger.log(Level.INFO, "Process "+name+": still waiting...");
                     p.waitFor(5, TimeUnit.SECONDS);

@@ -7,7 +7,7 @@ public class ProcessExecutionConfiguration {
     public String workDir = null;
     public String executable = null;
     public List<String> args = new LinkedList<>();
-    public int watchdogTimeout = 60;
-    public int maxTotalTime = 60;
+    public int watchdogTimeout = 30;
+    public int watchdogCheckInterval = 200;
     public boolean allowWritableExecutable = false;
 }
