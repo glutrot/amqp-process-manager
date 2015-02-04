@@ -1,5 +1,6 @@
 package de.glutrot.tools.amqpprocessmanager.camel.processor;
 
+import de.glutrot.tools.amqpprocessmanager.ProcessCommunicator;
 import de.glutrot.tools.amqpprocessmanager.ProcessWatchdog;
 import de.glutrot.tools.amqpprocessmanager.beans.config.ProcessConfiguration;
 import java.io.BufferedReader;
@@ -169,10 +170,18 @@ public class ExternalTaskProcessor implements Processor {
             logger.log(Level.INFO, "Process "+name+": Starting...");
             
             try {
+                // start process
                 Process p = pb.start();
+                
+                // monitor process by watchdog
                 ProcessWatchdog wd = new ProcessWatchdog(p, watchdogTimeout, watchdogCheckInterval, name);
                 wd.start();
                 
+                // setup communiction with process
+                ProcessCommunicator comm = new ProcessCommunicator(p, wd, name);
+                comm.start();
+                
+                // TODO: use non-blocking Future from ProcessCommunicator instead
                 while (p.isAlive()) {
                     logger.log(Level.INFO, "Process "+name+": still waiting...");
                     p.waitFor(5, TimeUnit.SECONDS);
