@@ -182,9 +182,19 @@ public class ExternalTaskProcessor implements Processor {
                 ProcessCommunicator comm = new ProcessCommunicator(p, wd, name);
                 comm.start();
                 
-                Future<ProcessCommunicator.Result> futureResult = comm.getFutureResult();
-                result = futureResult.get(); // QUESTION: don't block?
-                logger.log(Level.FINE, "Process "+name+": Future returned");
+                // forward input message to process
+                if (!comm.sendPlainMessage(exchange.getIn().getBody(String.class))) {
+                    // if forwarding failed, kill process and return immediately with an error message
+                    logger.log(Level.WARNING, "Process "+name+": Failed to forward input from message to process, terminating process!");
+                    p.destroyForcibly();
+                    success = false;
+                }
+                
+                if (success) {
+                    Future<ProcessCommunicator.Result> futureResult = comm.getFutureResult();
+                    result = futureResult.get(); // QUESTION: don't block?
+                    logger.log(Level.FINE, "Process "+name+": Future returned");
+                }
                 
                 // QUESTION: Is it possible to dispatch the output message to
                 //           next processor/endpoint in Camel for faster delivery
@@ -197,7 +207,7 @@ public class ExternalTaskProcessor implements Processor {
                     Thread.yield();
                 }
                 
-                logger.log(Level.INFO, "Process "+name+": Finished...");
+                logger.log(Level.INFO, "Process "+name+": Shut down...");
             } catch (Exception ex) {
                 logger.log(Level.WARNING, "Process "+name+": Execution failed with exception:", ex);
                 success = false;

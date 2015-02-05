@@ -1,6 +1,9 @@
 package de.glutrot.tools.amqpprocessmanager;
 
+import java.util.LinkedList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -31,6 +34,8 @@ public class ProcessWatchdog extends Thread {
     private long latestExpectedTimeMillis = -1;
     private long firstTimeTerminationMillis = -1;
     private String logPrefix = null;
+    
+    private List<Callable<Void>> shutdownCallbacks = new LinkedList<>();
     
     /**
      * Initializes a watchdog with given properties.
@@ -104,7 +109,7 @@ public class ProcessWatchdog extends Thread {
             if (currentTimeMillis > latestExpectedTimeMillis) {
                 if (firstTimeTerminationMillis < 0) {
                     // log first time termination
-                    logger.log(Level.WARNING, logPrefix+"Process timed out, "+Long.toString(currentTimeMillis - latestExpectedTimeMillis)+"ms since last heartbeat (timeout was set to "+Integer.toString(timeout)+" seconds), trying to terminate...");
+                    logger.log(Level.WARNING, logPrefix+"Process timed out (>="+Integer.toString(timeout)+" seconds since last heartbeat), trying to terminate...");
                     firstTimeTerminationMillis = currentTimeMillis;
                 } else if ((currentTimeMillis - firstTimeTerminationMillis > hangThresholdMillis) && (currentTimeMillis - hangThresholdLastWarned >= hangThresholdMillis)) {
                     // log repeatedly if process appears to be stuck indefinitely
@@ -129,11 +134,61 @@ public class ProcessWatchdog extends Thread {
         long currentTimeMillis = System.currentTimeMillis();
         boolean wasTerminated = (firstTimeTerminationMillis >= 0);
         if (wasTerminated) {
-            logger.log(Level.WARNING, logPrefix+"Terminated in <"+Long.toString(currentTimeMillis - firstTimeTerminationMillis)+"ms");
+            logger.log(Level.WARNING, logPrefix+"Terminated in <"+Long.toString(currentTimeMillis - firstTimeTerminationMillis)+"ms (exit code "+Integer.toString(process.exitValue())+")");
         } else if (startTimeMillis < 0) {
-            logger.log(Level.FINE, logPrefix+"Process wasn't alive when we started.");
+            logger.log(Level.FINE, logPrefix+"Process wasn't alive when we started. (exit code "+Integer.toString(process.exitValue())+")");
         } else {
-            logger.log(Level.FINE, logPrefix+"Process completed without timeout in <"+Long.toString(currentTimeMillis - startTimeMillis)+"ms");
+            logger.log(Level.FINE, logPrefix+"Process completed without timeout in <"+Long.toString(currentTimeMillis - startTimeMillis)+"ms (exit code "+Integer.toString(process.exitValue())+")");
+        }
+        
+        // notify observers by calling registered shutdown callbacks
+        // NOTE: process.isAlive() has to return false by now to avoid new
+        //       callbacks getting registered late (accomplished by while loop above)
+        List<Callable<Void>> localShutdownCallbacks;
+        synchronized (syncObj) {
+            localShutdownCallbacks = new LinkedList<>(shutdownCallbacks);
+        }
+        
+        if (localShutdownCallbacks.isEmpty()) {
+            logger.log(Level.FINE, "{0}no shutdown callbacks registered", logPrefix);
+        } else {
+            logger.log(Level.FINE, "{0}Notifying {1} shutdown callbacks", new Object[]{logPrefix, localShutdownCallbacks.size()});
+            
+            for (Callable<Void> callback : localShutdownCallbacks) {
+                try {
+                    callback.call();
+                } catch (Exception ex) {
+                    logger.log(Level.WARNING, logPrefix+"Exception while notifying shutdown callback after process has shut down:", ex);
+                }
+            }
+            
+            logger.log(Level.FINE, "{0}Called all shut down callbacks.", logPrefix);
+        }
+    }
+    
+    /**
+     * Adds a Callable to be called when process is being shut down. If process
+     * is already dead when trying to add the callback, callback will be run
+     * immediately.
+     * @param callback shutdown callback
+     */
+    public void addShutdownCallback(Callable<Void> callback) {
+        boolean alreadyDead = false;
+        
+        synchronized (syncObj) {
+            alreadyDead = !process.isAlive();
+            
+            if (!alreadyDead) {
+                shutdownCallbacks.add(callback);
+            }
+        }
+        
+        if (alreadyDead) {
+            try {
+                callback.call();
+            } catch (Exception ex) {
+                logger.log(Level.WARNING, logPrefix+"Exception while immediately notifying shutdown callback that the process is already dead:", ex);
+            }
         }
     }
 }

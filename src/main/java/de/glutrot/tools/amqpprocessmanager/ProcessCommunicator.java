@@ -6,6 +6,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.Charset;
+import java.util.LinkedList;
+import java.util.NoSuchElementException;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -34,7 +37,7 @@ import org.json.simple.parser.ParseException;
  * </ul>
  * In turn, the process may receive input from stdin encoded in JSON format, one line per message (writer => stdin):
  * <ul>
- * <li>sendMessage(String) submits <code>["message", "..."]</code> which contains a generic message to be consumed by the process</li>
+ * <li>sendPlainMessage(String) submits <code>["message", "..."]</code> which contains a generic message to be consumed by the process</li>
  * </ul>
  * Process should flush its stdout after each message to ensure they are processed in time.
  */
@@ -270,6 +273,8 @@ public class ProcessCommunicator {
         
         private String logPrefix = null;
         private BufferedWriter bw = null;
+        private boolean streamOpen = true;
+        private final LinkedList<String> sendQueue = new LinkedList<>();
         
         public ToProcessThread(Process process, String name) {
             logPrefix = "Writer for process "+name+": ";
@@ -279,7 +284,102 @@ public class ProcessCommunicator {
         
         @Override
         public void run() {
-            // TODO: implement message writer
+            String msg = null;
+            while (true) {
+                // get message from queue
+                synchronized (sendQueue) {
+                    // stop if stream has been closed
+                    if (!streamOpen) {
+                        logger.log(Level.FINE, "{0}Stopping due to closed stream", logPrefix);
+                        break;
+                    }
+                    
+                    if (sendQueue.isEmpty()) {
+                        try {
+                            sendQueue.wait();
+                        } catch (InterruptedException ex) {
+                            logger.log(Level.FINE, logPrefix+"Monitor of sendQueue has been interrupted", ex);
+                            continue;
+                        }
+                        
+                        // we may have been woken up because stream has been
+                        // closed and we should terminate now; skip processing
+                        if (!streamOpen) {
+                            continue;
+                        }
+                    }
+                    
+                    // get message to send
+                    try {
+                        msg = sendQueue.pop();
+                    } catch (NoSuchElementException ex) {
+                        logger.log(Level.WARNING, logPrefix+"sendQueue returned Exception during pop(), retrying...", ex);
+                        continue;
+                    }
+                }
+                
+                // send message to process
+                try {
+                    bw.write(msg);
+                    bw.newLine();
+                    bw.flush();
+                    
+                    logger.log(Level.FINE, logPrefix+"Message sent to process");
+                } catch (IOException ex) {
+                    logger.log(Level.FINE, logPrefix+"Exception while sending message to process:", ex);
+                    
+                    // mark stream closed so no more messages will be queued
+                    synchronized (sendQueue) {
+                        streamOpen = false;
+                    }
+                    
+                    // continue handling above
+                    continue;
+                }
+            }
+            
+            logger.log(Level.FINE, "{0}Thread terminating...", logPrefix);
+        }
+        
+        /**
+         * Queues the given IPC-encoded message to be sent to the process unless
+         * stream has already been closed. Monitors on sendQueue will be notified
+         * upon queuing.
+         * @param msg encoded message to send to as defined by ProcessCommunicator
+         * @return success? (false if stream has been closed)
+         */
+        public boolean queueMessage(String msg) {
+            boolean localStreamOpen;
+            
+            logger.log(Level.FINE, "{0}Queuing message to be sent to process...", logPrefix);
+            
+            synchronized (sendQueue) {
+                localStreamOpen = streamOpen;
+                if (localStreamOpen) {
+                    sendQueue.addLast(msg);
+                    sendQueue.notifyAll();
+                }
+            }
+            
+            return streamOpen;
+        }
+        
+        /**
+         * Shuts the thread down (use after process has terminated).
+         */
+        public void shutdown() {
+            logger.log(Level.FINE, logPrefix+"writer shutdown requested");
+            
+            synchronized (sendQueue) {
+                try {
+                    bw.close();
+                } catch (IOException ex) {
+                    logger.log(Level.FINE, logPrefix+"failed to close writer", ex);
+                }
+                
+                streamOpen = false;
+                sendQueue.notifyAll();
+            }
         }
     }
     
@@ -297,6 +397,11 @@ public class ProcessCommunicator {
         
         fromProcessThread = new FromProcessThread(process, watchdog, name);
         toProcessThread = new ToProcessThread(process, name);
+        
+        watchdog.addShutdownCallback(() -> {
+            toProcessThread.shutdown();
+            return null;
+        });
     }
     
     /**
@@ -317,4 +422,18 @@ public class ProcessCommunicator {
     public Future<Result> getFutureResult() {
         return futureResult;
     };
+    
+    
+    public boolean sendPlainMessage(String msg) {
+        if (msg == null) {
+            logger.log(Level.WARNING, logPrefix+"Tried to send null message; unable to comply by protocol, ignoring message...");
+            return false;
+        }
+        
+        JSONArray arr = new JSONArray();
+        arr.add("message");
+        arr.add(msg);
+        
+        return toProcessThread.queueMessage(arr.toJSONString());
+    }
 }
