@@ -35,8 +35,9 @@ public class RabbitMQReplyMsg implements Processor {
         Message out = in.copy();
         Map<String, Object> headersIn = in.getHeaders();
         
-        // remove all previous RabbitMQ headers to get a "clean" start
-        out.removeHeaders("rabbitmq.*");
+        // remove headers unsuitable for replies
+        out.removeHeader("rabbitmq.REPLY_TO");
+        out.removeHeader("rabbitmq.EXPIRATION");
         
         // force default exchange, workaround for bug CAMEL-8270
         out.setHeader("rabbitmq.EXCHANGE_NAME", "");

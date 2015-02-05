@@ -5,6 +5,7 @@ import de.glutrot.tools.amqpprocessmanager.beans.config.Config;
 import de.glutrot.tools.amqpprocessmanager.beans.config.ProcessConfiguration;
 import de.glutrot.tools.amqpprocessmanager.camel.processor.RabbitMQReplyMsg;
 import de.glutrot.tools.amqpprocessmanager.camel.processor.ExternalTaskProcessor;
+import de.glutrot.tools.amqpprocessmanager.camel.processor.RPCBodyReplyProcessor;
 import firstTries.TestCamel;
 import org.apache.camel.CamelContext;
 import org.apache.camel.builder.RouteBuilder;
@@ -52,7 +53,8 @@ public class ProcessManagerRouteBuilder extends RouteBuilder {
         amqpOut.setExchangeType("direct");
         
         // use a common processor to set headers for reply messages
-        RabbitMQReplyMsg replyProcessor = RabbitMQReplyMsg.getInstance();
+        RabbitMQReplyMsg headerReplyProcessor = RabbitMQReplyMsg.getInstance();
+        RPCBodyReplyProcessor rpcBodyReplyProcessor = new RPCBodyReplyProcessor();
         
         // define dedicated endpoints for each processor defined in config
         for (ProcessConfiguration procConfig : config.processes) {
@@ -80,7 +82,7 @@ public class ProcessManagerRouteBuilder extends RouteBuilder {
             ExternalTaskProcessor taskProcessor = new ExternalTaskProcessor(procConfig);
             
             // wire it up
-            from(amqpIn).process(taskProcessor).process(replyProcessor).to(amqpOut);
+            from(amqpIn).process(taskProcessor).process(rpcBodyReplyProcessor).process(headerReplyProcessor).to(amqpOut);
         }
     }
 }

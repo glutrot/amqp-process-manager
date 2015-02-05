@@ -220,7 +220,7 @@ public class ExternalTaskProcessor implements Processor {
         if (success) {
             out.setBody(result.getOutput());
         } else {
-            out.setBody("failed!");
+            out.setBody(null);
         }
         exchange.setOut(out);
     }
