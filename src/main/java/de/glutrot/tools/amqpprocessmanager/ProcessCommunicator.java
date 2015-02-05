@@ -265,6 +265,8 @@ public class ProcessCommunicator {
             if (!receivedResult) {
                 futureResult.setResult(new Result(null, true));
             }
+            
+            logger.log(Level.FINE, "{0}Thread terminating...", logPrefix);
         }
     }
     
@@ -398,6 +400,10 @@ public class ProcessCommunicator {
         fromProcessThread = new FromProcessThread(process, watchdog, name);
         toProcessThread = new ToProcessThread(process, name);
         
+        // Writer thread does not break when stream is closed because it waits
+        // on the send queue instead, so we have to wake it up.
+        // Not necessary for reader thread as it waits on I/O, so it wakes up
+        // on its own as soon as the stream is closed.
         watchdog.addShutdownCallback(() -> {
             toProcessThread.shutdown();
             return null;
