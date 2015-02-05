@@ -1,0 +1,33 @@
+{
+    'amqpCommonSettings': {
+        'hostname': 'setMe',
+        'port': 5672,
+        'username': 'setMe',
+        'password': 'setMe',
+        'vhost': 'setMe',
+        'automaticRecoveryEnabled': true,
+        'connectionTimeout': 30000,
+        'requestedHeartbeat': 10
+    },
+    
+    'processes': [
+        {
+            'name': 'CallMeMaybe',
+            'concurrentConsumers': 2,
+            'execution': {
+                'workDir': '/path/to/work/dir/',
+                'executable': './some-executable-relative-to-workdir',
+                'args': [],
+                'watchdogTimeout': 5,
+                'watchdogCheckInterval': 200,
+                'allowWritableExecutable': true
+            },
+            'amqp': {
+                'exchange': 'router',
+                'exchangeType': 'direct',
+                'routingKey': null,
+                'queue': 'msgs'
+            }
+        }
+    ]
+}
