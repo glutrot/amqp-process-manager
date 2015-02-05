@@ -184,6 +184,18 @@ public class ExternalTaskProcessor implements Processor {
                 
                 Future<ProcessCommunicator.Result> futureResult = comm.getFutureResult();
                 result = futureResult.get(); // QUESTION: don't block?
+                logger.log(Level.FINE, "Process "+name+": Future returned");
+                
+                // QUESTION: Is it possible to dispatch the output message to
+                //           next processor/endpoint in Camel for faster delivery
+                //           of result to client while still blocking the input
+                //           until the process terminates to avoid getting
+                //           flooded/accepting expiring new tasks?
+                
+                // wait until process terminates before accepting next task
+                while (p.isAlive()) {
+                    Thread.yield();
+                }
                 
                 logger.log(Level.INFO, "Process "+name+": Finished...");
             } catch (Exception ex) {
