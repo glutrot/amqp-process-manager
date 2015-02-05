@@ -11,6 +11,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -165,7 +166,7 @@ public class ExternalTaskProcessor implements Processor {
         }
         
         // start process
-        String result = null;
+        ProcessCommunicator.Result result = null;
         if (success) {
             logger.log(Level.INFO, "Process "+name+": Starting...");
             
@@ -181,17 +182,10 @@ public class ExternalTaskProcessor implements Processor {
                 ProcessCommunicator comm = new ProcessCommunicator(p, wd, name);
                 comm.start();
                 
-                // TODO: use non-blocking Future from ProcessCommunicator instead
-                while (p.isAlive()) {
-                    logger.log(Level.INFO, "Process "+name+": still waiting...");
-                    p.waitFor(5, TimeUnit.SECONDS);
-                }
-
+                Future<ProcessCommunicator.Result> futureResult = comm.getFutureResult();
+                result = futureResult.get(); // QUESTION: don't block?
+                
                 logger.log(Level.INFO, "Process "+name+": Finished...");
-
-                BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream(), "UTF-8"));
-                result = br.readLine();
-                br.close();
             } catch (Exception ex) {
                 logger.log(Level.WARNING, "Process "+name+": Execution failed with exception:", ex);
                 success = false;
@@ -200,13 +194,12 @@ public class ExternalTaskProcessor implements Processor {
         
         // prepare output message
         Message out = exchange.getIn().copy();
+        success &= (result != null) && !result.hasFailed();
         if (success) {
-            out.setBody(result);
+            out.setBody(result.getOutput());
         } else {
             out.setBody("failed!");
         }
         exchange.setOut(out);
-        
-        //Thread.sleep(2000);
     }
 }

@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.apache.camel.util.EndpointHelper;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONValue;
 import org.json.simple.parser.JSONParser;
@@ -38,17 +39,141 @@ import org.json.simple.parser.ParseException;
  * Process should flush its stdout after each message to ensure they are processed in time.
  */
 public class ProcessCommunicator {
+    private static final Logger logger = Logger.getLogger(ProcessCommunicator.class.getName());
+    private final String logPrefix;
+    
     private FromProcessThread fromProcessThread = null;
     private ToProcessThread toProcessThread = null;
     
     private final static Charset charset = Charset.forName("UTF-8");
+    
+    protected final FutureResult futureResult = new FutureResult();
+    
+    /**
+     * Future containing a Result which will notify observers upon calling
+     * setResult(...).
+     */
+    public class FutureResult implements Future<Result> {
+        private final Object syncObj = new Object();
+        private Result result = null;
         
-    protected static class FromProcessThread extends Thread {
-        private static final Logger logger = Logger.getLogger(FromProcessThread.class.getName());
+        /**
+         * Sets result and notifies observers. Result should only be set once.
+         * If multiple results are being set, it is not safe to assume which one
+         * may be used by calling code.
+         * @param result result to store
+         */
+        protected void setResult(Result result) {
+            logger.log(Level.FINE, logPrefix+"setting result on Future");
+            
+            if (result == null) {
+                logger.log(Level.WARNING, logPrefix+"Setting null result - Future will not terminate!");
+            }
+            
+            synchronized (syncObj) {
+                if (this.result != null) {
+                    logger.log(Level.WARNING, logPrefix+"Result was already set - any but first Result may be used, previous Results may be lost!");
+                }
+                
+                this.result = result;
+                
+                syncObj.notifyAll();
+            }
+        }
+        
+        @Override
+        public boolean cancel(boolean bln) {
+            // not implemented
+            return false;
+        }
+
+        @Override
+        public boolean isCancelled() {
+            // not implemented
+            return false;
+        }
+
+        @Override
+        public boolean isDone() {
+            boolean isDone = false;
+
+            synchronized (syncObj) {
+                isDone = (result != null);
+            }
+
+            return isDone;
+        }
+
+        @Override
+        public Result get() throws InterruptedException, ExecutionException {
+            Result copiedResult = null;
+            
+            synchronized (syncObj) {
+                while (result == null) {
+                    syncObj.wait();
+                }
+                
+                copiedResult = result;
+            }
+            
+            return copiedResult;
+        }
+
+        @Override
+        public Result get(long duration, TimeUnit timeUnit) throws InterruptedException, ExecutionException, TimeoutException {
+            Result copiedResult = null;
+            
+            synchronized (syncObj) {
+                if (result != null) {
+                    syncObj.wait(timeUnit.toMillis(duration));
+                }
+                
+                copiedResult = result;
+            }
+            
+            if (copiedResult == null) {
+                throw new TimeoutException("wait for Result object timed out");
+            }
+            
+            return copiedResult;
+        }
+    };
+    
+    /**
+     * Result represents a process' result containing state (got data?)
+     * and plain String result output received from the process.
+     */
+    public static class Result {
+        private String output = null;
+        private boolean hasFailed = false;
+
+        public Result(String output, boolean hasFailed) {
+            this.output = output;
+            this.hasFailed = hasFailed;
+        }
+        
+        public String getOutput() {
+            return output;
+        }
+        
+        public boolean hasFailed() {
+            return hasFailed;
+        }
+    }
+    
+    /**
+     * FromProcessThread manages communication from process to communicator by
+     * reading the process' stdout stream. See documentation of ProcessCommunicator
+     * for details on supported messages.
+     */
+    protected class FromProcessThread extends Thread {
+        private final Logger logger = Logger.getLogger(FromProcessThread.class.getName());
         private String logPrefix = null;
         
         private ProcessWatchdog watchdog = null;
         private BufferedReader br = null;
+        
+        private boolean receivedResult = false;
         
         public FromProcessThread(Process process, ProcessWatchdog watchdog, String name) {
             this.watchdog = watchdog;
@@ -56,6 +181,24 @@ public class ProcessCommunicator {
             logPrefix = "Reader for process "+name+": ";
             
             br = new BufferedReader(new InputStreamReader(process.getInputStream(), charset));
+        }
+        
+        private void handleResult(JSONArray msg) {
+            if (msg.size() != 2) {
+                logger.log(Level.WARNING, logPrefix+"Process sent result message with wrong number of arguments, ignoring message");
+                return;
+            }
+            
+            Object resultObj = msg.get(1);
+            String result = (resultObj instanceof String) ? (String) resultObj : null;
+            
+            if (result == null) {
+                logger.log(Level.WARNING, logPrefix+"Process sent invalid result (must be String and not null), ignoring message.");
+                return;
+            }
+            
+            futureResult.setResult(new Result(result, false));
+            receivedResult = true;
         }
         
         @Override
@@ -66,6 +209,11 @@ public class ProcessCommunicator {
                 // read until stream closes
                 while (true) {
                     String line = br.readLine();
+                    
+                    // terminate upon null line
+                    if (line == null) {
+                        break;
+                    }
 
                     // try to parse message container
                     JSONArray msg = null;
@@ -99,13 +247,20 @@ public class ProcessCommunicator {
                         case "heartbeat":   watchdog.heartbeat();
                                             break;
                         
-                        // TODO: implement result/message handlers
+                        case "result":      handleResult(msg);
+                                            break;
                         
                         default:            logger.log(Level.WARNING, "Process sent unknown IPC message keyword \""+keyword+"\"");
                     }
                 }
             } catch (IOException ex) {
                 logger.log(Level.FINE, logPrefix+"Reader caught exception, stopping", ex);
+            }
+            
+            // resolve Future to failed state if we did not receive any result
+            // NOTE: this is required to notify observers or they may wait forever
+            if (!receivedResult) {
+                futureResult.setResult(new Result(null, true));
             }
         }
     }
@@ -138,6 +293,8 @@ public class ProcessCommunicator {
     public ProcessCommunicator(Process process, ProcessWatchdog watchdog, String name) {
         super();
         
+        logPrefix = "Communicator for process "+name+": ";
+        
         fromProcessThread = new FromProcessThread(process, watchdog, name);
         toProcessThread = new ToProcessThread(process, name);
     }
@@ -150,4 +307,14 @@ public class ProcessCommunicator {
         toProcessThread.start();
     }
     
+    /**
+     * Result will become available during communication or at latest after
+     * stream connection has been terminated. As this is an asynchronous
+     * operation, you can use this method to get a Future for the Result
+     * (non-blocking).
+     * @return Future of process Result
+     */
+    public Future<Result> getFutureResult() {
+        return futureResult;
+    };
 }
