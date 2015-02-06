@@ -1,6 +1,7 @@
 package de.glutrot.tools.amqpprocessmanager.camel.processor;
 
 import de.glutrot.tools.amqpprocessmanager.ProcessCommunicator;
+import de.glutrot.tools.amqpprocessmanager.ProcessStdErrLogForwarder;
 import de.glutrot.tools.amqpprocessmanager.ProcessWatchdog;
 import de.glutrot.tools.amqpprocessmanager.beans.config.ProcessConfiguration;
 import java.io.File;
@@ -20,6 +21,7 @@ public class ExternalTaskProcessor implements Processor {
     
     private static final CharSequence PLACEHOLDER_ENV_ORIGINAL_VALUE = "%%%ORIGINAL_VALUE%%%";
     
+    private boolean logStdErr = false;
     private boolean allowWritableExecutable = false;
     private boolean isConfigured = false;
     private ProcessBuilder pb = null;
@@ -57,6 +59,8 @@ public class ExternalTaskProcessor implements Processor {
             logger.log(Level.SEVERE, "Process {0}: Executable has not been configured!", name);
             isConfigured = false;
         }
+        
+        logStdErr = config.logStdErr;
         
         pb = new ProcessBuilder(cmdAndArgs);
         pb.directory(new File(config.execution.workDir));
@@ -194,6 +198,12 @@ public class ExternalTaskProcessor implements Processor {
                 // setup communiction with process
                 ProcessCommunicator comm = new ProcessCommunicator(p, wd, name);
                 comm.start();
+                
+                // start stderr logging if requested
+                if (logStdErr) {
+                    ProcessStdErrLogForwarder stdErrLogger = new ProcessStdErrLogForwarder(p, name);
+                    stdErrLogger.start();
+                }
                 
                 // forward input message to process
                 if (!comm.sendPlainMessage(exchange.getIn().getBody(String.class))) {
