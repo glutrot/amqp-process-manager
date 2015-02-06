@@ -3,16 +3,12 @@ package de.glutrot.tools.amqpprocessmanager.camel.processor;
 import de.glutrot.tools.amqpprocessmanager.ProcessCommunicator;
 import de.glutrot.tools.amqpprocessmanager.ProcessWatchdog;
 import de.glutrot.tools.amqpprocessmanager.beans.config.ProcessConfiguration;
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.camel.Exchange;
@@ -21,6 +17,8 @@ import org.apache.camel.Processor;
 
 public class ExternalTaskProcessor implements Processor {
     private static final Logger logger = Logger.getLogger(ExternalTaskProcessor.class.getName());
+    
+    private static final CharSequence PLACEHOLDER_ENV_ORIGINAL_VALUE = "%%%ORIGINAL_VALUE%%%";
     
     private boolean allowWritableExecutable = false;
     private boolean isConfigured = false;
@@ -62,6 +60,21 @@ public class ExternalTaskProcessor implements Processor {
         
         pb = new ProcessBuilder(cmdAndArgs);
         pb.directory(new File(config.execution.workDir));
+        
+        // merge environment variables
+        Map<String, String> environment = pb.environment();
+        for (Map.Entry<String, String> entrySet : config.execution.env.entrySet()) {
+            String key = entrySet.getKey();
+            String value = entrySet.getValue();
+            
+            // replace placeholder for original value
+            if (value.contains(PLACEHOLDER_ENV_ORIGINAL_VALUE)) {
+                value = value.replace(PLACEHOLDER_ENV_ORIGINAL_VALUE, (CharSequence) environment.getOrDefault(key, ""));
+            }
+            
+            // transfer to ProcessBuilder environment variables
+            environment.put(key, value);
+        }
         
         if (!checkSafeExecution()) {
             logger.warning("Process "+name+": One or more pre-conditions have been violated, no execution will happen until you fix these issues!");

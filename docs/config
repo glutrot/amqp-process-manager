@@ -18,6 +18,9 @@
                 'workDir': '/path/to/work/dir/',
                 'executable': './some-executable-relative-to-workdir',
                 'args': [],
+                'env': {
+                    'PYTHONPATH': '/where/ever:%%%ORIGINAL_VALUE%%%'
+                },
                 'watchdogTimeout': 5,
                 'watchdogCheckInterval': 200,
                 'allowWritableExecutable': true
