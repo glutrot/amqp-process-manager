@@ -8,16 +8,13 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.Charset;
 import java.util.LinkedList;
 import java.util.NoSuchElementException;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.apache.camel.util.EndpointHelper;
 import org.json.simple.JSONArray;
-import org.json.simple.JSONValue;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 

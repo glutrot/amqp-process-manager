@@ -6,7 +6,6 @@ import de.glutrot.tools.amqpprocessmanager.beans.config.ProcessConfiguration;
 import de.glutrot.tools.amqpprocessmanager.camel.processor.RabbitMQReplyMsg;
 import de.glutrot.tools.amqpprocessmanager.camel.processor.ExternalTaskProcessor;
 import de.glutrot.tools.amqpprocessmanager.camel.processor.RPCBodyReplyProcessor;
-import firstTries.TestCamel;
 import org.apache.camel.CamelContext;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.component.rabbitmq.RabbitMQEndpoint;
@@ -37,6 +36,7 @@ public class ProcessManagerRouteBuilder extends RouteBuilder {
         
         // configure prefetcher as workaround for CAMEL-8308 to avoid locking
         // all messages on server (which prevents message expiration)
+        // see: https://issues.apache.org/jira/browse/CAMEL-8308
         endpoint.setPrefetchEnabled(true);
         endpoint.setPrefetchCount(1);
     }
