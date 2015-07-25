@@ -2,7 +2,7 @@
 
 # for Gentoo; store as /etc/init.d/amqpprocessmanager
 # configure variables below
-# also configure PIDFILE, CONFIG and LOG_CONFIG in /etc/conf.d/amqpprocessmanager
+# also configure PIDFILE, DAEMONUSER, CONFIG and LOG_CONFIG in /etc/conf.d/amqpprocessmanager
 
 jar=/path/to/assembled.jar
 
@@ -13,7 +13,7 @@ depend() {
 
 start() {
         ebegin "Starting AMQP Process Manager"
-        start-stop-daemon --start --quiet --background --make-pidfile --pidfile "${PIDFILE}" -u REDACTED --exec "$(java-config -J)" -- -Djava.util.logging.config.file="${LOG_CONFIG}" -jar "${jar}" "${CONFIG}"
+        start-stop-daemon --start --quiet --background --make-pidfile --pidfile "${PIDFILE}" -u ${DAEMONUSER} --exec "$(java-config -J)" -- -Djava.util.logging.config.file="${LOG_CONFIG}" -jar "${jar}" "${CONFIG}"
         eend $?
 }
 
